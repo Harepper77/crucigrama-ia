@@ -1,11 +1,49 @@
 import React, { useState } from 'react';
 import Anthropic from '@anthropic-ai/sdk';
 import CrucigramaGrid from './CrucigramaGrid';
+import { guardarTemaUsado, guardarPalabras, mezclarPalabrasConBD } from './analyticsService';
+
 
 function CrucigramaGenerator() {
   const [tema, setTema] = useState('');
+  const [dificultad, setDificultad] = useState(5); // Valor por defecto: medio
   const [loading, setLoading] = useState(false);
   const [palabras, setPalabras] = useState([]);
+  const getDificultadInstrucciones = (nivel) => {
+  if (nivel <= 2) {
+    return `DIFICULTAD MUY FÁCIL (${nivel}/10):
+- Palabras y conceptos que TODO EL MUNDO conoce
+- Pistas muy obvias y directas
+- Información básica y popular
+- Ejemplo: "Planeta rojo del sistema solar" = MARTE`;
+  } else if (nivel <= 4) {
+    return `DIFICULTAD FÁCIL (${nivel}/10):
+- Conceptos conocidos por público general
+- Pistas claras pero requieren pensar un poco
+- Información común pero no obvia
+- Ejemplo: "Capital de Francia conocida por la Torre Eiffel" = PARIS`;
+  } else if (nivel <= 6) {
+    return `DIFICULTAD MEDIA (${nivel}/10):
+- Requiere conocimiento general sólido
+- Pistas que no son obvias, hay que pensar
+- Mezcla de información popular y específica
+- Ejemplo: "Tenista con más Grand Slams en la historia (apellido)" = DJOKOVIC`;
+  } else if (nivel <= 8) {
+    return `DIFICULTAD DIFÍCIL (${nivel}/10):
+- Requiere conocimiento especializado del tema
+- Pistas con datos específicos (fechas, números, detalles)
+- Información que solo fans/conocedores sabrían
+- Ejemplo: "Director de Blade Runner estrenada en 1982 (apellido)" = SCOTT`;
+  } else {
+    return `DIFICULTAD MUY DIFÍCIL (${nivel}/10):
+- Solo para EXPERTOS en el tema
+- Pistas extremadamente específicas (fechas exactas, nombres completos, datos técnicos)
+- Referencias oscuras que solo verdaderos especialistas conocen
+- Ejemplo: "Compositor de la banda sonora de Blade Runner 2049 (apellido)" = ZIMMER`;
+  }
+};
+
+
 
   const generarCrucigrama = async () => {
     if (!tema.trim()) {
@@ -21,26 +59,29 @@ function CrucigramaGenerator() {
         dangerouslyAllowBrowser: true
       });
 
-      const prompt = `Genera exactamente 20 palabras DIFERENTES Y VARIADAS relacionadas con el tema "${tema}" para un crucigrama.
+      const prompt = `Genera exactamente 12 palabras DIFERENTES Y VARIADAS relacionadas con el tema "${tema}" para un crucigrama.
 
-IMPORTANTE: Usa palabras de distintas categorías, épocas, y aspectos del tema. NO repitas palabras similares o de la misma familia.
+        NIVEL DE DIFICULTAD: ${dificultad}/10
 
-REGLAS ESTRICTAS:
-1. Solo palabras de 4-12 letras
-2. EN MAYÚSCULAS, sin acentos, sin espacios, sin guiones
-3. Pistas estilo trivia intermedio-difícil (requieren conocimiento previo o especializado)
-4. MÁXIMA VARIEDAD: incluye nombres, lugares, conceptos, objetos, eventos relacionados
-5. Responde SOLO con JSON, sin texto antes ni después
-6. Sin backticks de markdown
-7. Sin explicaciones
+        ${getDificultadInstrucciones(dificultad)}
 
-FORMATO EXACTO:
-[
-{"palabra":"NADAL","pista":"Tenista nacido en Mallorca, 14 veces campeón de Roland Garros (apellido)"},
-{"palabra":"FEDERER","pista":"Ganador de 8 títulos en Wimbledon, récord en la era Open (apellido)"}
-]
+        IMPORTANTE: Usa palabras de distintas categorías, épocas, y aspectos del tema. NO repitas palabras similares o de la misma familia.
 
-Genera 20 palabras siguiendo este formato exacto, asegurándote de que sean lo más variadas posible dentro del tema "${tema}".`;
+        REGLAS ESTRICTAS:
+        1. Solo palabras de 4-12 letras
+        2. EN MAYÚSCULAS, sin acentos, sin espacios, sin guiones
+        3. MÁXIMA VARIEDAD: incluye nombres, lugares, conceptos, objetos, eventos relacionados
+        4. Responde SOLO con JSON, sin texto antes ni después
+        5. Sin backticks de markdown
+        6. Sin explicaciones
+
+        FORMATO EXACTO:
+        [
+        {"palabra":"NADAL","pista":"Tenista nacido en Mallorca, 14 veces campeón de Roland Garros (apellido)"},
+        {"palabra":"FEDERER","pista":"Ganador de 8 títulos en Wimbledon, récord en la era Open (apellido)"}
+        ]
+
+        Genera 12 palabras siguiendo este formato exacto, asegurándote de que sean lo más variadas posible dentro del tema "${tema}" con dificultad ${dificultad}/10.`;
 
       const message = await client.messages.create({
         model: 'claude-sonnet-4-20250514',
@@ -79,30 +120,61 @@ Genera 20 palabras siguiendo este formato exacto, asegurándote de que sean lo m
       }
 
       // Validar y corregir typos comunes (se ejecuta siempre)
-      palabrasGeneradas = palabrasGeneradas.map(item => {
+        palabrasGeneradas = palabrasGeneradas.map(item => {
         // Corregir "pita" a "pista"
         if (item.pita && !item.pista) {
-          item.pista = item.pita;
-          delete item.pita;
-          console.warn('Typo corregido: "pita" -> "pista" en palabra:', item.palabra);
+            item.pista = item.pita;
+            delete item.pita;
+            console.warn('Typo corregido: "pita" -> "pista" en palabra:', item.palabra);
         }
         
         // Validar que tenga palabra y pista
         if (!item.palabra || !item.pista) {
-          console.warn('Palabra inválida detectada:', item);
-          return null;
+            console.warn('Palabra inválida detectada:', item);
+            return null;
+        }
+        
+        // Quitar acentos de las palabras
+        const palabraOriginal = item.palabra;
+        item.palabra = item.palabra
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase();
+        
+        if (palabraOriginal !== item.palabra) {
+            console.warn(`Acentos removidos: "${palabraOriginal}" -> "${item.palabra}"`);
         }
         
         return item;
-      }).filter(Boolean); // Eliminar nulls
+        }).filter(Boolean);
 
-      console.log(`${palabrasGeneradas.length} palabras válidas generadas`);
+      console.log(`${palabrasGeneradas.length} palabras nuevas generadas`);
 
       if (!palabrasGeneradas || palabrasGeneradas.length === 0) {
         throw new Error('No se generaron palabras válidas.');
       }
       
-      setPalabras(palabrasGeneradas);
+      // Mezclar con palabras de BD (DESHABILITADO - causaba repeticiones)
+        let palabrasFinales = palabrasGeneradas;
+        /*
+        try {
+        palabrasFinales = await mezclarPalabrasConBD(palabrasGeneradas, tema);
+        console.log('✅ Palabras mezcladas con BD');
+        } catch (error) {
+        console.error('Error mezclando con BD:', error);
+        }
+        */
+
+        setPalabras(palabrasFinales);
+
+        // Guardar analytics (solo palabras nuevas)
+        try {
+        await guardarTemaUsado(tema);
+        await guardarPalabras(palabrasGeneradas, tema); // Guardar solo las nuevas generadas
+        console.log('✅ Analytics guardados correctamente');
+        } catch (error) {
+        console.error('Error guardando analytics:', error);
+        }
       
     } catch (error) {
       console.error('Error completo:', error);
@@ -131,6 +203,60 @@ Genera 20 palabras siguiendo este formato exacto, asegurándote de que sean lo m
           }}
           onKeyPress={(e) => e.key === 'Enter' && generarCrucigrama()}
         />
+
+        <div style={{ marginBottom: '20px' }}>
+            <label style={{ 
+                display: 'block', 
+                marginBottom: '8px', 
+                fontSize: '16px',
+                fontWeight: 'bold',
+                color: '#333'
+            }}>
+                Dificultad: {dificultad}/10
+                <span style={{ 
+                marginLeft: '10px', 
+                fontSize: '14px', 
+                fontWeight: 'normal',
+                color: '#666'
+                }}>
+                ({dificultad <= 2 ? 'Muy Fácil' : 
+                    dificultad <= 4 ? 'Fácil' : 
+                    dificultad <= 6 ? 'Medio' : 
+                    dificultad <= 8 ? 'Difícil' : 'Muy Difícil'})
+                </span>
+            </label>
+            
+            <input
+                type="range"
+                min="1"
+                max="10"
+                value={dificultad}
+                onChange={(e) => setDificultad(parseInt(e.target.value))}
+                style={{
+                width: '100%',
+                height: '8px',
+                borderRadius: '5px',
+                outline: 'none',
+                background: `linear-gradient(to right, 
+                    #28a745 0%, 
+                    #28a745 ${((dificultad - 1) / 9) * 100}%, 
+                    #ddd ${((dificultad - 1) / 9) * 100}%, 
+                    #ddd 100%)`,
+                cursor: 'pointer'
+                }}
+            />
+            
+            <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                fontSize: '12px', 
+                color: '#999',
+                marginTop: '5px'
+            }}>
+                <span>1 - Muy Fácil</span>
+                <span>10 - Experto</span>
+            </div>
+            </div>
       </div>
 
       <button

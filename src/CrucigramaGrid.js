@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { generarCrucigramaConCruces } from './crucigramaAlgorithm';
+import { guardarEstadisticasPartida } from './analyticsService';
 
 function CrucigramaGrid({ palabras }) {
   const [grid, setGrid] = useState([]);
@@ -305,7 +306,7 @@ function CrucigramaGrid({ palabras }) {
     return false;
   };
 
-  const verificarRespuestas = () => {
+  const verificarRespuestas = async () => {
     let correctas = 0;
     let total = 0;
 
@@ -348,7 +349,25 @@ function CrucigramaGrid({ palabras }) {
     });
     
     setTimerIniciado(false);
+
+    // Guardar estadísticas en Firebase
+    try {
+    await guardarEstadisticasPartida({
+        tema: 'General', // Podemos mejorar esto después pasando el tema desde Generator
+        correctas,
+        total,
+        porcentaje,
+        tiempo: segundos,
+        puntosFinales,
+        usoDePistas
+    });
+    console.log('✅ Estadísticas guardadas en Firebase');
+    } catch (error) {
+    console.error('Error guardando estadísticas:', error);
+    }
   };
+
+  
 
   const mostrarRespuestas = () => {
     const nuevoGrid = grid.map(row => [...row]);
